@@ -5,6 +5,7 @@
 
 extern UART_HandleTypeDef huart1;
 extern TIM_HandleTypeDef  htim5;
+extern TIM_HandleTypeDef  htim3;
 extern uint8_t  stressTestState;
 extern uint8_t    calibRunState;
 extern uint8_t  adcMonitorState;
@@ -102,11 +103,13 @@ void dataTaking(uint8_t state) {
 		VMM3A_stop();
 		VMM3A_readout();
 		NVIC_EnableIRQ(EXTI9_5_IRQn);
+		HAL_NVIC_EnableIRQ(TIM3_IRQn);
 		dataTakingState = 1;
 		VMM3A_start();
 	}
 	else {
 		NVIC_DisableIRQ(EXTI9_5_IRQn);
+		HAL_NVIC_DisableIRQ(TIM3_IRQn);
 		dataTakingState = 0;
 		VMM3A_readout();
 		VMM3A_stop();

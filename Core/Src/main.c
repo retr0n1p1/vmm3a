@@ -83,6 +83,9 @@ extern uint8_t flag;
   * @brief  The application entry point.
   * @retval int
   */
+
+
+
 int main(void)
 {
 
@@ -178,16 +181,17 @@ int main(void)
 
   HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
 
+uint32_t trigcou = 1;
 
-inline uint32_t bc(uint32_t* ti1, uint32_t* ti2){ //!Для рассчета расстояний во времени (с учетом переполнения), не до конца уверен что uint адекватно справляется с разницей, отрицательных событий точно не возникает, но все же
-	if(*ti2<*ti1){
-		return 4294967295 - *ti1 + 1 + *ti2;
-	} 
-	else{
-		return *ti2-*ti1;
-	}
-}
+/*   hit_t testH = {0};
+   testH.board = 135;
+   testH.channel = 128;
+   testH.charge = 10;
+   testH.footer = 0xAAAAAAAA;
 
+  spill_t testsp = {0};
+  testsp.hitCount = 1; //!Тестовый хит, который отправляется на 32 канале, если сработал тригер, но в буффере ничего подходящего не нашлось
+  testsp.term = 0; */
 
   /* USER CODE END 2 */
 
@@ -195,6 +199,7 @@ inline uint32_t bc(uint32_t* ti1, uint32_t* ti2){ //!Для рассчета р�
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  if((trigcou != 1)&&(dataTakingState == 0)) {trigcou = 1;}
 //	  HAL_IWDG_Refresh(&hiwdg);
 	  if(stressTestState) {
 		  getRandomSpill(0);
@@ -209,19 +214,60 @@ inline uint32_t bc(uint32_t* ti1, uint32_t* ti2){ //!Для рассчета р�
 	  	  ADC_transmit(voltage);
 	  }
 
-       //!Фильтрация по времени
+       //!Фильтрация только по окну
+   if (is_trigger_detected()) { //!Отлавливаем флаг тригера
+    __disable_irq(); 
+    spill_t tempo;
+    int kuku = sizeeFIFO;
+    uint32_t moment = get_last_trigger_time(); //!Берем время срабатывания тригера по второму таймеру
+    for(int i = 0; i<sizeeFIFO; i++){
+	int j = posFIFO + 1 + i; //!Шагаем по буфферу, начиная с самого старого элемента
+	if(j>sizeeFIFO-1) {j = j - sizeeFIFO;}
+	if(FIFO.spills[j].term == 0){
+		uint32_t deltaa = moment - FIFO.spills[i].bcidd; 
+		if(deltaa < window){ //!Посчитали разницу, если меньше окна отправляем
+	         kuku = j;
+	 	 break;	 
+		}
+	}
+    }
+    if(kuku != sizeeFIFO){ //!Если что-то нашли
+	tempo = FIFO.spills[kuku];
+	FIFO.spills[kuku].term = 1; //!Поднимаем флаг на игнор этого спила
+    	tempo.spillCount = trigcou; //!Указываем счетчик спилов по тригеру
+        for(int i = 0; i<tempo.hitCount; i++){
+		tempo.hits[i].event = trigcou; //!Прописываем его же в каждый хит
+    	}
+        __enable_irq(); //!Возобновляем прерывания
+	DAQ_transmit(&tempo);
+	trigcou++;
+    }
+    else{
+//    testH.event = trigcou;
+//    testH.time = FIFO.spills[posFIFO].hits[0].time;
+//    testH.bcid = get_last_trigger_time();
+//    testsp.spillCount = trigcou;
+//    testsp.hits[0]=testH;  
+
+    __enable_irq(); //!Возможно нужно весь расчет обернуть в это, не уверен что будет если в процессе сработает прерывание
+//    DAQ_transmit(&testsp);
+ //   trigcou++;
+    }
+    clear_trigger_flag(); 
+  }
+
+/*       //!Фильтрация по оконному времени и выборка наиболее подходящего
    if (is_trigger_detected()) { //!Отлавливаем флаг тригера
     FIFO_t tempFIFO; 
     __disable_irq(); 
     tempFIFO = FIFO; //!Компируем данные во временный буфер, выключив прерывания дабы не повредить
-    __enable_irq(); //!Возможно нужно весь расчет обернуть в это, не уверен что будет если в процессе сработает прерывание
     spill_t tempo;
     uint32_t delta_min = window + 10;
     uint8_t min = 0;
     uint32_t moment = get_last_trigger_time(); //!Берем время срабатывания тригера по второму таймеру
     for(int i = 0; i<sizeeFIFO; i++){
 	if(tempFIFO.spills[i].term == 0){
-		uint32_t deltaa = bc(&tempFIFO.spills[i].bcidd, &moment); 
+		uint32_t deltaa = moment - tempFIFO.spills[i].bcidd; 
 		if(deltaa < window){ //!Посчитали разницу, если больше окна игнорируем
 			if(deltaa<trigDelay){ //!Далее сравниваем с предполагаемой задержкой и выбираем что поближе
 				if(trigDelay - deltaa < delta_min){
@@ -241,14 +287,27 @@ inline uint32_t bc(uint32_t* ti1, uint32_t* ti2){ //!Для рассчета р�
     if(delta_min != window + 10){ //!Если что-то нашли
 	tempo = tempFIFO.spills[min];
 	tempFIFO.spills[min].term = 1; //!Поднимаем флаг на игнор этого спила
-    	tempo.spillCount = get_trigger_count(); //!Указываем счетчик спилов по тригеру
+    	tempo.spillCount = trigcou; //!Указываем счетчик спилов по тригеру
         for(int i = 0; i<tempo.hitCount; i++){
-		tempo.hits[i].event = get_trigger_count(); //!Прописываем его же в каждый хит
+		tempo.hits[i].event = trigcou; //!Прописываем его же в каждый хит
     	}
+        __enable_irq(); //!Возможно нужно весь расчет обернуть в это, не уверен что будет если в процессе сработает прерывание
 	DAQ_transmit(&tempo);
+	trigcou++;
+    }
+    else{
+    testH.event = trigcou;
+    testH.time = FIFO.spills[posFIFO].hits[0].time;
+    testH.bcid = get_last_trigger_time();
+    testsp.spillCount = trigcou;
+    testsp.hits[0]=testH;  
+
+    __enable_irq(); //!Возможно нужно весь расчет обернуть в это, не уверен что будет если в процессе сработает прерывание
+    DAQ_transmit(&testsp);
+    trigcou++;
     }
     clear_trigger_flag(); 
-  }
+  }*/
 	  /* //!Без фильтрации по времени, чисто отправка последнего из буффера (для тестов)
     if (is_trigger_detected()) {
     __disable_irq();
