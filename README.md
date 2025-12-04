@@ -3,7 +3,7 @@
 1. You need to install arm-none-eabi-gcc of any version, you can do this through the package manager on most distributions
 2. `cd Release`
 3. `make "VMM3Atrig.elf" -j4`
-To clean it, you can use the `make clean` command
+4. To clean after compilation you can use the `make clean` command
 ## Flash
 1. You need to install st-info and st-flash utilities, you can do this through the package manager on most distributions
 2. To flash the firmware into stm you need a binary file with the extension `.bin`, you can get it with the command `arm-none-eabi-objcopy -O binary VMM3Atrig.elf VMM3Atrig.bin`
